@@ -245,22 +245,30 @@ class SoftmaxNode(object):
         temp = []
         for prob in self.out:
             temp.append(prob*(1-prob))
-
-        temp2 = -1*np.outer(self.out,self.out)
-        np.fill_diagonal(temp2,np.array(temp))
+        self.diag = temp
+        self.temp2 = -1*np.outer(self.out,self.out)
+        np.fill_diagonal(self.temp2,np.array(self.diag))
 
         #temp  = np.diagflat(temp)
-        self.z.d_out = self.d_out@(temp2)
+        dz = self.d_out.T@self.temp2
+        self.z.d_out += dz 
         
         return self.d_out
     def get_predecessors(self):
+        #print(self.z.d_out)
         return([self.z])
 
 class NLLNode(object):
     """ Node computing NLL loss between 2 arrays.
         Parameters:
-        y_hat: a node that contains all predictions
-        y_true: a node that contains all labels,
+        y_hat: a node that contains a vector, for a single
+        x's probability prediction
+        y_true: a node that's out is a single value, corresponding
+        to the true class value of x_i. Used as an index
+
+        Interestingly enough, maybe b/c we're doing SGD
+        the shape of Y_HAT is R^k and Y_true R 
+
     """
     def __init__(self, y_hat, y_true, node_name):
         self.node_name = node_name
@@ -270,13 +278,35 @@ class NLLNode(object):
         self.y_true = y_true
     def forward(self):
         self.a = self.y_hat.out[self.y_true.out]
-        self.out = np.sum(-np.log(self.a))
+        self.out = np.mean(-np.log(self.a))
         self.d_out =  np.zeros(self.out.shape)
         return self.out
 
-    def backward(self, y_hat, y_true):
-        #d f(z) / d(z)  = p(1-p)
-        self.y_hat.d_out = self.d_out*-1*(self.a**-1)
+    def backward(self):
+        #inspiration 
+        # https://stats.stackexchange.com/questions/309427/softmax-with-log-likelihood-cost
+        
+        #initialize an array that is of same shape as y_hat.out
+        #we'll use this for y_hat.d_out
+
+        temp_mat = np.zeros_like(self.y_hat.out)
+
+        #now the derivative of log(y_hat_true.out[y])
+        #this means we take the recipricol of y_hat_true[y] and multiply
+        #it by -1
+        
+        dz = -1*(self.a**-1)
+        #both of the dz are equal to each other, included both for
+        #transparency
+        dz = -1*(self.y_hat.out[self.y_true.out]**-1)
+  
+        #now the only entry in our array that has a value, is when
+        #class = y, so we update our array at index y_i by setting
+        #it to dz
+        temp_mat[self.y_true.out] =  dz
+        self.y_hat.d_out = self.d_out*temp_mat
+        
+        #don't need y_true.d_out b/c it's an index 
         return(self.d_out)
-    def getpredecessors(self):
+    def get_predecessors(self):
         return([self.y_hat,self.y_true])

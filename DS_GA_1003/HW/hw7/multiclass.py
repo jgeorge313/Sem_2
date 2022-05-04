@@ -28,8 +28,28 @@ class MulticlassClassifier(BaseEstimator, RegressorMixin):
         self.num_class = num_class
 
         # Build computation graph
-        # TODO: add your code here
+        self.x = nodes.ValueNode(node_name="x") # inputs
+        self.y = nodes.ValueNode(node_name="y") # vector of class labels
+        self.W1 = nodes.ValueNode(node_name="W1") # to hold the parameter vector
+        self.b1 = nodes.ValueNode(node_name="b1") # to hold the bias parameter (scalar)
+        self.W2 = nodes.ValueNode(node_name="W2") # to hold the parameter vector
+        self.b2 = nodes.ValueNode(node_name="b2") # to hold the bias parameter (scalar)
+        self.affine = nodes.AffineNode(x=self.x, W=self.W1, b=self.b1, node_name='affine')
+        self.tan_h = nodes.TanhNode(a=self.affine, node_name = 'tan_h')
 
+
+        """
+        second set of logic, use the VectorScalarAffineNode to get the ultimate
+        output and then calculate the L2 loss
+        """
+        self.Z=nodes.AffineNode(x=self.tan_h, W=self.W2, b=self.b2, node_name='Z')
+        self.prediction = nodes.SoftmaxNode(z=self.Z, node_name="prediction")
+        self.objective = nodes.NLLNode(y_hat=self.prediction,y_true=self.y, node_name='NLL')
+        self.graph = graph.ComputationGraphFunction(inputs = [self.x],
+                                                    outcomes= [self.y],
+                                                    parameters=[self.W1,self.b1,self.W2,self.b2],
+                                                    prediction=self.prediction,
+                                                    objective = self.objective)
     def fit(self, X, y):
         num_instances, num_ftrs = X.shape
         y = y.reshape(-1)
