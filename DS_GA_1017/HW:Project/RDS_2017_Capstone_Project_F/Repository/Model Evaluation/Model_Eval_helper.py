@@ -1,8 +1,37 @@
 from dataclasses import dataclass
 import sys
 import json
+import numpy as np
 import pandas as pd
 import gc
+from copy import deepcopy
+
+
+def mean_encode(train, val, features_to_encode, target, drop=False):
+    train_encode = train.copy(deep=True)
+    val_encode = val.copy(deep=True)
+    for feature in features_to_encode:
+        train_global_mean = train[target].mean()
+        train_encode_map = pd.DataFrame(index = train[feature].unique())
+        train_encode[feature+'_mean_encode'] = np.nan
+        kf = KFold(n_splits=5, shuffle=False)
+        for rest, this in kf.split(train):
+            train_rest_global_mean = train[target].iloc[rest].mean()
+            encode_map = train.iloc[rest].groupby(feature)[target].mean()
+            encoded_feature = train.iloc[this][feature].map(encode_map).values
+            train_encode[feature+'_mean_encode'].iloc[this] = train[feature].iloc[this].map(encode_map).values
+            train_encode_map = pd.concat((train_encode_map, encode_map), axis=1, sort=False)
+            train_encode_map.fillna(train_rest_global_mean, inplace=True) 
+            train_encode[feature+'_mean_encode'].fillna(train_rest_global_mean, inplace=True)
+            
+        train_encode_map['avg'] = train_encode_map.mean(axis=1)
+        val_encode[feature+'_mean_encode'] = val[feature].map(train_encode_map['avg'])
+        val_encode[feature+'_mean_encode'].fillna(train_global_mean,inplace=True)
+        
+    if drop: #drop unencoded features
+        train_encode.drop(features_to_encode, axis=1, inplace=True)
+        val_encode.drop(features_to_encode, axis=1, inplace=True)
+    return train_encode, val_encode
 # Main Function that will define model behavior
 
 class DataLoader(object):
@@ -28,12 +57,8 @@ class DataLoader(object):
         data, test = self.preprocess_raw_data()
         data, test = self.merge_feature_engineering(data, test)
         data, test = self.apply_final_preprocessing(data,test)
-<<<<<<< HEAD
-        if self.dimmension_check:
-            DataLoader.dimmension_check()
-=======
-        
->>>>>>> 7bb4276 (uploading WIP files to github)
+        if self.dimmension_check == True:
+            self.dimmension_check(data,test)
         return(data, test)
     def preprocess_raw_data(self):
         """
@@ -44,11 +69,7 @@ class DataLoader(object):
 
         #create path list
         directory = self.directory_path_dict['Preprocess']
-<<<<<<< HEAD
         file_list = ['data_app', 'test_app', 'avg_buro', 'ccbl_mon', 'pos_recent', 'inst_avg'] #create list of file_names w/o .csv extension
-=======
-        file_list = ['data_app', 'test_app', 'avg_buro', 'ccbl_mon', 'pos_recent', 'avg_prev', 'inst_avg'] #create list of file_names w/o .csv extension
->>>>>>> 7bb4276 (uploading WIP files to github)
         path_list = [directory + x + '.csv' for x in file_list] #create path list by adding necessary folder and extensions to each file
         #load data
         print('Reading Raw Data')
@@ -57,15 +78,10 @@ class DataLoader(object):
         avg_buro = pd.read_csv(path_list[2], compression='zip') #load preprocessed buro data
         ccbl_mon = pd.read_csv(path_list[3], compression='zip') #load preprocessed cc balance data
         pos_recent = pd.read_csv(path_list[4], compression='zip') #load preprocessed cash data
-<<<<<<< HEAD
         inst_avg = pd.read_csv(path_list[5], compression='zip') #load preprocessed installment data
         
         #speciallyl oad avg_prev, it was a csv w > 100 MB so i had to save it as a compressed Parquet to push to github
         avg_prev = pd.read_parquet(directory+'avg_prev.parquet.gzip')
-=======
-        avg_prev = pd.read_csv(path_list[5], compression='zip') #load preprocessed previous application data
-        inst_avg = pd.read_csv(path_list[6], compression='zip') #load preprocessed installment data
->>>>>>> 7bb4276 (uploading WIP files to github)
 
         print('Joining datasets to training data ~ 1 min out of 9 mins to import data')
         #merge data
@@ -193,7 +209,7 @@ class DataLoader(object):
         #merge
         data = data.merge(right=train_pos_score, how='left', on='SK_ID_CURR')
         test = test.merge(right=test_pos_score, how='left', on='SK_ID_CURR')
-        print('Reading Installemnt data, ~8/9 minutes completed')
+        print('Reading Installment data, ~8/9 minutes completed')
         ##load train and test installment data
         train_inst_score = pd.read_csv(self.train_dict['Inst'])
         test_inst_score  = pd.read_csv(self.test_dict['Inst'])
@@ -217,7 +233,7 @@ class DataLoader(object):
         taken directly from the author himself, applies the last feature engineering
         takes 17 seconds
         """
-        print('applying final preprocessing, train/test will be loaded in ~ 20 seconds')
+        print('Applying final preprocessing, train/test will be loaded in ~ 20 seconds')
         data['Total_AMT_ANNUITY'] = data[['AMT_ANNUITY','bureau_active_sum_AMT_ANNUITY','prev_active_sum_AMT_ANNUITY']].sum(axis=1)
         data['Total_ANNUITY_INCOME_RATIO'] = data['Total_AMT_ANNUITY'] / data['AMT_INCOME_TOTAL']
         data['Total_CREDIT'] = data[['AMT_CREDIT','prev_active_sum_AMT_LEFT']].sum(axis=1) #exclude AMT already paid
@@ -244,63 +260,144 @@ class DataLoader(object):
             data[f_+'_to_prev_refused'] = (data[f_] - data['prev_refused_'+f_+'_MEAN'])/data['prev_refused_'+f_+'_MEAN']
             test[f_+'_to_prev_approved'] = (test[f_] - test['prev_approved_'+f_+'_MEAN'])/test['prev_approved_'+f_+'_MEAN']
             test[f_+'_to_prev_refused'] = (test[f_] - test['prev_refused_'+f_+'_MEAN'])/test['prev_refused_'+f_+'_MEAN']
-<<<<<<< HEAD
        
         #drop unnecessary index columns
         # data= data.drop(['index','index_x','index_y'],axis = 1)
         # test = test.drop(['index','index_x','index_y'],axis = 1)
         #assign as attributes
-        self.data = data
-        self.test = test
-=======
-        #drop unnecessary index columns
-        data, test = data.drop(['index','index_x','index_y'],axis = 1), test.drop(['index','index_x','index_y'],axis = 1)
->>>>>>> 7bb4276 (uploading WIP files to github)
+       
         return(data, test)
     
     
-    def dimmensension_check(self):
-<<<<<<< HEAD
+    def dimmension_check(self,data,test):
         print('validating dimmesnsions match original input')
         true_train_shape = (307511, 783)
-        train_shape = self.data.shape
+        train_shape = data.shape
 
         true_test_shape = (48744, 783)
-        test_shape = self.test.shape
+        test_shape = test.shape
         check = 0
         if train_shape != true_train_shape:
             print(f'Training data has {train_shape}, which does not equal {true_train_shape}')
         else:
             print(f'Success! Training data has {train_shape}, which equals {true_train_shape}')
-            self.data.drop(columns = ['index','index_x','index_y'], inplace = True)
-            if self.train.shape != true_train_shape:
+            data.drop(columns = ['index','index_x','index_y'], inplace = True)
+            if data.shape != true_train_shape:
                 check +=1
-            else:
-                pass 
+            
+                 
         
         if test_shape != true_test_shape:
             print(f'Training data has {test_shape}, which does not equal {true_train_shape}')
+            test.drop(columns = ['index','index_x','index_y'], inplace = True)
+
         else:
             print(f'Success! Training data has {test_shape}, which equals {true_test_shape}')
-            self.test.drop(columns = ['index','index_x','index_y'], inplace = True)
-            if self.test.shape != true_train_shape:
+
+            if test.shape != true_train_shape:
                 check +=1
             else:
-                pass 
-        if check == 2:
+                pass
+
+        if check == 0:
             print('Dimmension Check passed')
         else:
             print('Dimmension Check failed')
-            print(f'train shape: {self.train.shape}, test shape: {self.test.shape}')
+            print(f'train shape: {data.shape}, test shape: {test.shape}')
+
+    def generate_special_features(self):
+        """
+        function that hardcodes the features we want to mean Encode 
+        We use this method rather than generating this list like our Author did in his lgb1m script
+        """
+        mean_encoding_list =  ['prev_NAME_PAYMENT_TYPE_mode', 'GENDER_FAMILY_STATUS', 'NAME_TYPE_SUITE', 'prev_recent_NAME_TYPE_SUITE', 
+                               'prev_NAME_PORTFOLIO_mode', 'prev_NAME_SELLER_INDUSTRY_mode', 'ORGANIZATION_TYPE', 'prev_NAME_TYPE_SUITE_mode', 
+                               'cc_NAME_CONTRACT_STATUS', 'prev_CODE_REJECT_REASON_mode', 'REGION', 'bureau_recent_CREDIT_TYPE', 
+                               'prev_recent_PRODUCT_COMBINATION', 'prev_recent_NAME_YIELD_GROUP', 'NAME_HOUSING_TYPE', 'bureau_CREDIT_TYPE_mode', 
+                               'prev_NAME_GOODS_CATEGORY_mode', 'prev_recent_CODE_REJECT_REASON', 'OCCUPATION_TYPE', 'prev_CHANNEL_TYPE_mode', 
+                               'NAME_INCOME_TYPE', 'prev_NAME_YIELD_GROUP_mode', 'bureau_recent_CREDIT_CURRENCY', 'bureau_CREDIT_CURRENCY_mode',
+                                'prev_recent_CHANNEL_TYPE', 'WALLSMATERIAL_MODE', 'prev_NAME_CONTRACT_TYPE_mode', 'prev_NAME_CASH_LOAN_PURPOSE_mode', 
+                                'prev_recent_NAME_CASH_LOAN_PURPOSE', 'NAME_FAMILY_STATUS', 'bureau_recent_CREDIT_ACTIVE', 'prev_recent_NAME_PORTFOLIO',
+                                'prev_recent_NAME_SELLER_INDUSTRY', 'pos_recent_NAME_CONTRACT_STATUS', 'prev_NAME_PRODUCT_TYPE_mode', 'prev_recent_NAME_GOODS_CATEGORY', 
+                                'prev_NAME_CONTRACT_STATUS_mode', 'prev_NAME_CLIENT_TYPE_mode', 'prev_PRODUCT_COMBINATION_mode', 'bureau_CREDIT_ACTIVE_mode']
+
+        cat_feats = ['NAME_CONTRACT_TYPE', 'CODE_GENDER', 'FLAG_OWN_CAR', 'FLAG_OWN_REALTY', 'NAME_EDUCATION_TYPE',
+             'FONDKAPREMONT_MODE', 'HOUSETYPE_MODE', 'EMERGENCYSTATE_MODE', 'prev_recent_NAME_CONTRACT_TYPE',
+             'prev_recent_NAME_CONTRACT_STATUS', 'prev_recent_NAME_PAYMENT_TYPE', 'prev_recent_NAME_CLIENT_TYPE', 
+             'prev_recent_NAME_PRODUCT_TYPE']
+
+
+        return(mean_encoding_list, cat_feats)
         
-=======
-        if self.dimension_check:
-            print('validating dimmesnsions match original input')
-            true_shape = (307511, 783)
-            our_shape = self.data.shape
-            if our_shape != true_col_num:
-                print(f'Training data has {our_shape}, which does not equal {true_shape}')
-            else:
-                print(f'Success! Training data has {str(our_shape)}, which equals {true_Shape}')
-        pass
->>>>>>> 7bb4276 (uploading WIP files to github)
+
+class BaggingClassifier(object):
+    """
+    code copied and pasted from the lgbm1 notebook
+    """
+    def __init__(self, base_estimator, n_estimators):
+
+        self.base_estimator_ = base_estimator
+        self.n_estimators_ = n_estimators
+
+    def fit(self, X, y, eval_set = None, eval_metric = None, verbose = None, early_stopping_rounds = None, categorical_feature = None):
+        
+        self.estimators_ = []
+        self.feature_importances_gain_ = np.zeros(X.shape[1])
+        self.feature_importances_split_ = np.zeros(X.shape[1])
+        self.n_classes_ = y.nunique()
+
+        if self.n_estimators_ == 1:
+            print ('n_estimators=1, no downsampling')
+            estimator = deepcopy(self.base_estimator_)
+            estimator.fit(X, y, eval_set = [(X, y)] + eval_set,
+                eval_metric = eval_metric, verbose = verbose, 
+                early_stopping_rounds = early_stopping_rounds)
+            self.estimators_.append(estimator)
+            self.feature_importances_gain_ += estimator.booster_feature_importance(importance_type='gain')
+            self.feature_importances_split_ += estimator.booster_feature_importance(importance_type='split')
+            return
+
+    #average down sampling results
+        minority = y.value_counts().sort_values().index.values[0]
+        majority = y.value_counts().sort_values().index.values[1]
+        print('majority class:', majority)
+        print('minority class:', minority)
+
+        X_min = X.loc[y==minority]
+        y_min = y.loc[y==minority]
+        X_maj = X.loc[y==majority]
+        y_maj = y.loc[y==majority]
+
+        kf = KFold(self.n_estimators_, shuffle=True, random_state=42)
+
+        for rest, this in kf.split(y_maj):
+
+            print('training on a subset')
+            X_maj_sub = X_maj.iloc[this]
+            y_maj_sub = y_maj.iloc[this]
+            X_sub = pd.concat([X_min, X_maj_sub])
+            y_sub = pd.concat([y_min, y_maj_sub])
+
+            estimator = deepcopy(self.base_estimator_)
+
+            estimator.fit(X_sub, y_sub, eval_set = [(X_sub, y_sub)] + eval_set,
+                eval_metric = eval_metric, verbose = verbose, 
+                early_stopping_rounds = early_stopping_rounds,
+                categorical_feature = categorical_feature)
+
+            self.estimators_.append(estimator)
+            self.feature_importances_gain_ += estimator.booster_.feature_importance(importance_type='gain')/self.n_estimators_
+            self.feature_importances_split_ += estimator.booster_.feature_importance(importance_type='split')/self.n_estimators_
+
+
+    def predict_proba(self, X):
+
+        n_samples = X.shape[0]
+        proba = np.zeros([n_samples, self.n_classes_])
+
+        for estimator in self.estimators_:
+
+            proba += estimator.predict_proba(X, num_iteration=estimator.best_iteration_)/self.n_estimators_
+
+        return proba
+    
